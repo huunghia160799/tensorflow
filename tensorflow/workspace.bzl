@@ -22,15 +22,19 @@ load(
 )
 load("//third_party/aws:workspace.bzl", aws = "repo")
 load("//third_party/flatbuffers:workspace.bzl", flatbuffers = "repo")
+load("//third_party/highwayhash:workspace.bzl", highwayhash = "repo")
 load("//third_party/icu:workspace.bzl", icu = "repo")
 load("//third_party/jpeg:workspace.bzl", jpeg = "repo")
 load("//third_party/nasm:workspace.bzl", nasm = "repo")
+load("//third_party/kissfft:workspace.bzl", kissfft = "repo")
 
 def initialize_third_party():
     """ Load third party repositories.  See above load() statements. """
     aws()
     flatbuffers()
+    highwayhash()
     icu()
+    kissfft()
     jpeg()
     nasm()
 
@@ -117,11 +121,11 @@ def tf_workspace(path_prefix = "", tf_repo_name = ""):
     tf_http_archive(
         name = "com_google_absl",
         build_file = clean_dep("//third_party:com_google_absl.BUILD"),
-        sha256 = "2809f7d97d126ad341c3126711df7bae6336278d959144db293a9b2756b726a8",
-        strip_prefix = "abseil-cpp-f340f773edab951656b19b6f1a77c964a78ec4c2",
+        sha256 = "225b683f2f866cd12b868e43b5af00e032e70e3f78ff332108b0ce15d41f6091",
+        strip_prefix = "abseil-cpp-a00bdd176d66ef0b417d9576052a19091fbdf891",
         urls = [
-            "https://mirror.bazel.build/github.com/abseil/abseil-cpp/archive/f340f773edab951656b19b6f1a77c964a78ec4c2.tar.gz",
-            "https://github.com/abseil/abseil-cpp/archive/f340f773edab951656b19b6f1a77c964a78ec4c2.tar.gz",
+            "https://mirror.bazel.build/github.com/abseil/abseil-cpp/archive/a00bdd176d66ef0b417d9576052a19091fbdf891.tar.gz",
+            "https://github.com/abseil/abseil-cpp/archive/a00bdd176d66ef0b417d9576052a19091fbdf891.tar.gz",
         ],
     )
 
@@ -226,17 +230,6 @@ def tf_workspace(path_prefix = "", tf_repo_name = ""):
         urls = [
             "https://mirror.bazel.build/github.com/google/farmhash/archive/816a4ae622e964763ca0862d9dbd19324a1eaf45.tar.gz",
             "https://github.com/google/farmhash/archive/816a4ae622e964763ca0862d9dbd19324a1eaf45.tar.gz",
-        ],
-    )
-
-    tf_http_archive(
-        name = "highwayhash",
-        build_file = clean_dep("//third_party:highwayhash.BUILD"),
-        sha256 = "9c3e0e87d581feeb0c18d814d98f170ff23e62967a2bd6855847f0b2fe598a37",
-        strip_prefix = "highwayhash-fd3d9af80465e4383162e4a7c5e2f406e82dd968",
-        urls = [
-            "http://mirror.bazel.build/github.com/google/highwayhash/archive/fd3d9af80465e4383162e4a7c5e2f406e82dd968.tar.gz",
-            "https://github.com/google/highwayhash/archive/fd3d9af80465e4383162e4a7c5e2f406e82dd968.tar.gz",
         ],
     )
 

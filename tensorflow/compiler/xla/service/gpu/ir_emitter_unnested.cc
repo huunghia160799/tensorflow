@@ -1728,6 +1728,14 @@ Status IrEmitterUnnested::HandleReduce(HloInstruction* reduce) {
 }
 
 Status IrEmitterUnnested::HandleTuple(HloInstruction* tuple) {
+  // For the root node of the entry computation we can elide writing the tuple
+  // buffer. We can always figure out the contents of the tuples from buffer
+  // assignment because we insert copies to ensure non-ambiguous output buffers.
+  // GpuExecutable never reads the tuple buffer.
+  if (tuple ==
+      tuple->parent()->parent()->entry_computation()->root_instruction()) {
+    return Status::OK();
+  }
   bool all_tuple_elements_have_buffer =
       absl::c_all_of(tuple->operands(), [&](HloInstruction* tuple_element) {
         return ir_emitter_context_->buffer_assignment()
@@ -2134,20 +2142,21 @@ Status IrEmitterUnnested::EmitScatter(
           scatter_indices_gen(raw_scatter_index_index.SourceIndexOfReshape(
               scatter_indices_shape, scatter_indices->shape(), &b_)));
       // And add the index to our window index. This yields the output index.
+      llvm::Value* casted_scatter_index =
+          IntCast(loaded_scatter_index, index.GetType(),
+                  /*isSigned=*/true);
       llvm::Value* dim_offset =
-          Add(input_window_multidim[operand_dim],
-              IntCast(loaded_scatter_index, index.GetType(),
-                      /*isSigned=*/true));
+          Add(input_window_multidim[operand_dim], casted_scatter_index);
       input_window_multidim[operand_dim] = dim_offset;
 
       // Also do the bounds check now.
       int64 max_index = operand->shape().dimensions(operand_dim) -
                         input_window_bounds[operand_dim] + 1;
-      // is_in_bounds = dim_offset >= 0 && dim_offset < dim_size-window_size+1
-      //   --> dim_offset u< dim_size-window_size+1
+      // is_in_bounds = index >= 0 && index < dim_size-window_size+1
+      //   --> index u< dim_size-window_size+1
       is_in_bounds =
-          And(is_in_bounds,
-              ICmpULT(dim_offset, index.GetConstantWithIndexType(max_index)));
+          And(is_in_bounds, ICmpULT(casted_scatter_index,
+                                    index.GetConstantWithIndexType(max_index)));
     }
 
     llvm_ir::LlvmIfData if_window_in_bounds_data = llvm_ir::EmitIfThenElse(

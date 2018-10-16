@@ -143,6 +143,7 @@ cuda_py_test(
 
 cuda_py_test(
     name = "function_test",
+    size = "medium",
     srcs = ["function_test.py"],
     additional_deps = [
         ":backprop",
@@ -150,6 +151,7 @@ cuda_py_test(
         ":function",
         ":tape",
         ":test",
+        "//tensorflow/python:test_ops",
         "//tensorflow/python:clip_ops",
         "//tensorflow/python:init_ops",
         "//tensorflow/python:layers",
@@ -245,7 +247,6 @@ py_library(
     visibility = ["//tensorflow:internal"],
     deps = [
         ":graph_only_ops",
-        "//tensorflow/python:cond_v2_impl",
         "//tensorflow/python:dtypes",
         "//tensorflow/python:errors",
         "//tensorflow/python:framework_ops",
@@ -392,6 +393,7 @@ py_library(
     name = "def_function",
     srcs = ["def_function.py"],
     srcs_version = "PY2AND3",
+    visibility = ["//tensorflow:internal"],
     deps = [
         ":context",
         ":function",

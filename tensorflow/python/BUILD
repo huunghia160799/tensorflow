@@ -88,6 +88,7 @@ py_library(
         ":client",
         ":client_testlib",
         ":collective_ops",
+        ":cond_v2",
         ":confusion_matrix",
         ":control_flow_ops",
         ":cudnn_rnn_ops_gen",
@@ -132,6 +133,7 @@ py_library(
         ":training",
         ":util",
         ":weights_broadcast_ops",
+        ":while_v2",
         "//tensorflow/core:protos_all_py",
         "//tensorflow/python/compat",
         "//tensorflow/python/data",
@@ -466,6 +468,7 @@ py_test(
     tags = [
         "no_pip",  # Path issues due to test environment
         "no_windows",
+        "notap",
     ],
     deps = [
         ":client_testlib",
@@ -742,7 +745,6 @@ py_library(
     srcs = ["framework/graph_to_function_def.py"],
     srcs_version = "PY2AND3",
     deps = [
-        ":cond_v2_impl",
         ":op_def_registry",
         "//tensorflow/core:protos_all_py",
     ],
@@ -1112,7 +1114,10 @@ py_test(
     ],
     main = "platform/build_info_test.py",
     srcs_version = "PY2AND3",
-    tags = ["notap"],
+    tags = [
+        "no_pip",
+        "notap",
+    ],
     deps = [
         ":client_testlib",
         ":platform",
@@ -1242,7 +1247,10 @@ py_test(
     data = ["//tensorflow/python:meta_graph_testdata"],
     main = "framework/meta_graph_test.py",
     srcs_version = "PY2AND3",
-    tags = ["no_pip"],
+    tags = [
+        "no_pip",
+        "no_windows",
+    ],
     deps = [
         ":array_ops",
         ":client_testlib",
@@ -1743,7 +1751,6 @@ tf_gen_op_wrapper_private_py(
 tf_gen_op_wrapper_private_py(
     name = "stateless_random_ops_gen",
     visibility = [
-        "//tensorflow/contrib/stateless:__pkg__",
         "//tensorflow/python/data/experimental/ops:__pkg__",
     ],
 )
@@ -1794,6 +1801,22 @@ tf_gen_op_wrapper_private_py(
 tf_gen_op_wrapper_private_py(
     name = "training_ops_gen",
     out = "training/gen_training_ops.py",
+)
+
+tf_gen_op_wrapper_private_py(
+    name = "ragged_array_ops_gen",
+    visibility = [
+        "//learning/brain/contrib/text:__pkg__",
+        "//learning/brain/contrib/text/python/ragged:__pkg__",
+    ],
+)
+
+tf_gen_op_wrapper_private_py(
+    name = "ragged_math_ops_gen",
+    visibility = [
+        "//learning/brain/contrib/text:__pkg__",
+        "//learning/brain/contrib/text/python/ragged:__pkg__",
+    ],
 )
 
 py_library(
@@ -1973,7 +1996,6 @@ py_library(
         "tensor_shape",
         ":array_ops",
         ":array_ops_gen",
-        ":cond_v2_impl",
         ":constant_op",
         ":control_flow_ops_gen",
         ":control_flow_util",
@@ -2003,16 +2025,37 @@ py_library(
 )
 
 py_library(
+    name = "control_flow_util_v2",
+    srcs = ["ops/control_flow_util_v2.py"],
+    srcs_version = "PY2AND3",
+    deps = [
+        "framework_ops",
+        "//tensorflow/python/eager:context",
+        "//tensorflow/python/eager:function",
+    ],
+)
+
+py_library(
     name = "cond_v2",
     srcs = [
         "ops/cond_v2.py",
     ],
     srcs_version = "PY2AND3",
     deps = [
-        ":cond_v2_impl",
+        ":array_ops",
+        ":c_api_util",
+        ":control_flow_util_v2",
+        ":framework_ops",
         ":function",
         ":function_def_to_graph",
+        ":functional_ops_gen",
         ":gradients",
+        ":gradients_impl",
+        ":graph_to_function_def",
+        ":pywrap_tensorflow",
+        ":util",
+        "//tensorflow/core:protos_all_py",
+        "//tensorflow/python/eager:function",
     ],
 )
 
@@ -2024,10 +2067,10 @@ py_library(
     srcs_version = "PY2AND3",
     deps = [
         ":array_ops",
-        ":cond_v2_impl",
         ":constant_op",
         ":control_flow_ops",
         ":control_flow_util",
+        ":control_flow_util_v2",
         ":framework_ops",
         ":function_def_to_graph",
         ":functional_ops_gen",
@@ -2037,23 +2080,6 @@ py_library(
         ":util",
         "//tensorflow/core:protos_all_py",
         "//tensorflow/python/eager:function",
-    ],
-)
-
-py_library(
-    name = "cond_v2_impl",
-    srcs = [
-        "ops/cond_v2_impl.py",
-    ],
-    srcs_version = "PY2AND3",
-    deps = [
-        ":array_ops",
-        ":c_api_util",
-        ":framework_ops",
-        ":functional_ops_gen",
-        ":pywrap_tensorflow",
-        ":util",
-        "//tensorflow/core:protos_all_py",
     ],
 )
 
@@ -2154,7 +2180,6 @@ py_library(
         ":array_ops",
         ":bitwise_ops",
         ":check_ops",
-        ":cond_v2_impl",
         ":control_flow_grad",
         ":control_flow_ops",
         ":control_flow_util",
@@ -2583,6 +2608,19 @@ py_library(
 )
 
 py_library(
+    name = "stateless_random_ops",
+    srcs = ["ops/stateless_random_ops.py"],
+    srcs_version = "PY2AND3",
+    deps = [
+        ":dtypes",
+        ":framework_ops",
+        ":math_ops",
+        ":random_ops",
+        ":stateless_random_ops_gen",
+    ],
+)
+
+py_library(
     name = "rnn",
     srcs = ["ops/rnn.py"],
     srcs_version = "PY2AND3",
@@ -2848,6 +2886,7 @@ py_library(
         ":spectral_grad",
         ":state_grad",
         ":state_ops",
+        ":stateless_random_ops",
         ":string_ops",
         ":template",
         ":tensor_array_grad",

@@ -641,7 +641,7 @@ cuda_py_test(
         "//tensorflow/python:linalg_ops",
         "//tensorflow/python:math_ops",
     ],
-    tags = ["notap"],
+    tags = ["optonly"],
 )
 
 cuda_py_test(
@@ -1490,7 +1490,6 @@ cuda_py_test(
         "//tensorflow/python:array_ops_gen",
         "//tensorflow/python:client",
         "//tensorflow/python:client_testlib",
-        "//tensorflow/python:cond_v2",
         "//tensorflow/python:control_flow_ops",
         "//tensorflow/python:data_flow_ops",
         "//tensorflow/python:data_flow_ops_gen",
@@ -1528,6 +1527,21 @@ tf_py_test(
         "//tensorflow/python:control_flow_util",
         "//tensorflow/python:test_ops",
     ],
+)
+
+tf_py_test(
+    name = "control_flow_util_v2_test",
+    size = "small",
+    srcs = ["control_flow_util_v2_test.py"],
+    additional_deps = [
+        "//tensorflow/python:client_testlib",
+        "//tensorflow/python:cond_v2",
+        "//tensorflow/python:constant_op",
+        "//tensorflow/python:control_flow_ops",
+        "//tensorflow/python:control_flow_util_v2",
+        "//tensorflow/python:while_v2",
+    ],
+    tags = ["no_gpu"],  # TODO(b/117796385): runs out of memory
 )
 
 cuda_py_test(
@@ -3215,7 +3229,10 @@ tf_py_test(
         "//tensorflow/python:platform",
     ],
     data = [":ackermann_op.so"],
-    tags = ["no_pip"],
+    tags = [
+        "no_pip",
+        "notap",
+    ],
 )
 
 tf_custom_op_library(
@@ -3234,7 +3251,10 @@ tf_py_test(
         "//tensorflow/python:platform",
     ],
     data = [":duplicate_op.so"],
-    tags = ["no_pip"],
+    tags = [
+        "no_pip",
+        "notap",
+    ],
 )
 
 tf_custom_op_library(
@@ -3253,7 +3273,10 @@ tf_py_test(
         "//tensorflow/python:platform",
     ],
     data = [":invalid_op.so"],
-    tags = ["no_pip"],
+    tags = [
+        "no_pip",
+        "notap",
+    ],
 )
 
 cuda_py_test(
@@ -3262,6 +3285,7 @@ cuda_py_test(
     srcs = ["cond_v2_test.py"],
     additional_deps = [
         "//tensorflow/python:array_ops",
+        "//tensorflow/python:test_ops",
         "//tensorflow/python:client_testlib",
         "//tensorflow/python:cond_v2",
         "//tensorflow/python:constant_op",

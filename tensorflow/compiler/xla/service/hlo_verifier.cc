@@ -27,6 +27,14 @@ limitations under the License.
 
 namespace xla {
 
+Status ShapeVerifier::Preprocess(HloInstruction* hlo) {
+  if (LayoutUtil::IsSparseArray(hlo->shape())) {
+    return InternalError("Sparse arrays are not yet fully supported: %s",
+                         hlo->ToString());
+  }
+  return Status::OK();
+}
+
 static Status CheckOperandCount(const HloInstruction* hlo, int expected) {
   if (hlo->operand_count() != expected) {
     return InternalError("Expected %d operands for %s instruction: %s",
@@ -286,6 +294,10 @@ Status ShapeVerifier::HandleSort(HloInstruction* sort) {
 
 Status ShapeVerifier::HandleConstant(HloInstruction* constant) {
   TF_RETURN_IF_ERROR(CheckOperandCount(constant, 0));
+  if (!Cast<HloConstantInstruction>(constant)->HasLiteral()) {
+    return InternalError("Constant is required to have a valid literal: %s",
+                         constant->ToString());
+  }
   return CheckShape(constant, constant->literal().shape());
 }
 
@@ -376,7 +388,15 @@ Status ShapeVerifier::HandleParameter(HloInstruction* hlo) {
 }
 
 Status ShapeVerifier::HandleFusion(HloInstruction* fusion) {
-  for (HloInstruction* fused_param : fusion->fused_parameters()) {
+  auto& fused_parameters = fusion->fused_parameters();
+  if (fused_parameters.size() != fusion->operand_count()) {
+    return InternalError(
+        "Fused parameter count (%d) does not match the number of operands (%d)"
+        " passed to the fusion instruction in: %s.",
+        fused_parameters.size(), fusion->operand_count(),
+        fusion->ToString().c_str());
+  }
+  for (HloInstruction* fused_param : fused_parameters) {
     int64 param_no = fused_param->parameter_number();
     if (!ShapesSame(fused_param->shape(), fusion->operand(param_no)->shape())) {
       return InternalError(
@@ -877,14 +897,24 @@ Status VerifyEntryAndExitShapes(const HloModule& module) {
 Status CheckEntryComputationLayout(const HloModule& module) {
   const HloComputation* computation = module.entry_computation();
   const auto& layout = module.entry_computation_layout();
+  const ShapeLayout& result_layout = layout.result_layout();
+
+  TF_RETURN_IF_ERROR(
+      ShapeUtil::ValidateShapeWithOptionalLayout(result_layout.shape()));
+
+  if (LayoutUtil::IsSparseArray(result_layout.shape())) {
+    return Unimplemented(
+        "Sparse arrays are not yet fully supported in program result shape: %s",
+        ShapeUtil::HumanStringWithLayout(result_layout.shape()));
+  }
 
   if (!ShapeUtil::Compatible(computation->root_instruction()->shape(),
-                             layout.result_layout().shape())) {
+                             result_layout.shape())) {
     return InternalError(
         "Shape of the root instruction of entry computation (%s) should be "
         "compatible to one specified in module's entry computation layout (%s)",
         ShapeUtil::HumanString(computation->root_instruction()->shape()),
-        ShapeUtil::HumanString(layout.result_layout().shape()));
+        ShapeUtil::HumanString(result_layout.shape()));
   }
 
   if (computation->num_parameters() != layout.parameter_count()) {
@@ -895,15 +925,21 @@ Status CheckEntryComputationLayout(const HloModule& module) {
   }
 
   for (int i = 0; i < computation->num_parameters(); ++i) {
-    if (!ShapeUtil::Compatible(computation->parameter_instruction(i)->shape(),
-                               layout.parameter_shape(i))) {
+    const HloInstruction* parameter = computation->parameter_instruction(i);
+    TF_RETURN_IF_ERROR(
+        ShapeUtil::ValidateShapeWithOptionalLayout(layout.parameter_shape(i)));
+    if (LayoutUtil::IsSparseArray(layout.parameter_shape(i))) {
+      return Unimplemented(
+          "Sparse arrays are not yet fully supported "
+          "in program parameter shape: %s",
+          ShapeUtil::HumanStringWithLayout(layout.parameter_shape(i)));
+    }
+    if (!ShapeUtil::Compatible(parameter->shape(), layout.parameter_shape(i))) {
       return InternalError(
           "Shape of the entry computation parameter %d is %s should be "
           "compatible to the one specified in module's entry computation "
           "layout %s",
-          i,
-          ShapeUtil::HumanString(
-              computation->parameter_instruction(i)->shape()),
+          i, ShapeUtil::HumanString(parameter->shape()),
           ShapeUtil::HumanString(layout.parameter_shape(i)));
     }
   }
@@ -1296,6 +1332,12 @@ class InstructionVerifier : public DfsHloVisitorWithDefault {
 
 StatusOr<bool> HloVerifier::Run(HloModule* module) {
   TF_RET_CHECK(!module->name().empty());
+
+  if (module->entry_computation()->IsFusionComputation()) {
+    return InvalidArgument(
+        "Module entry computation cannot be a fusion computation");
+  }
+
   TF_RETURN_IF_ERROR(VerifyHloStructure(module));
   TF_RETURN_IF_ERROR(VerifySendsAndRecvs(*module));
 
@@ -1315,6 +1357,8 @@ StatusOr<bool> HloVerifier::Run(HloModule* module) {
   if (module->has_schedule()) {
     TF_RETURN_IF_ERROR(module->schedule().Verify());
   }
+
+  TF_RETURN_IF_ERROR(module->input_output_alias_config().Verify(*module));
 
   return false;
 }

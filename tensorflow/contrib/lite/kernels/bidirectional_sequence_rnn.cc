@@ -14,8 +14,8 @@ limitations under the License.
 ==============================================================================*/
 #include <cassert>
 #include <cmath>
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <limits>
 
@@ -213,9 +213,10 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
         GetTemporary(context, node, kScalingFactors);
     scaling_factors->type = kTfLiteFloat32;
     scaling_factors->allocation_type = kTfLiteArenaRw;
-    TfLiteIntArray* scaling_factors_size = TfLiteIntArrayCreate(1);
-    scaling_factors_size->data[0] = batch_size;
-    if (!TfLiteIntArrayEqual(scaling_factors->dims, scaling_factors_size)) {
+    int scaling_dims[1] = {batch_size};
+    if (!TfLiteIntArrayEqualsArray(scaling_factors->dims, 1, scaling_dims)) {
+      TfLiteIntArray* scaling_factors_size = TfLiteIntArrayCreate(1);
+      scaling_factors_size->data[0] = batch_size;
       TF_LITE_ENSURE_OK(context, context->ResizeTensor(context, scaling_factors,
                                                        scaling_factors_size));
     }
@@ -299,9 +300,6 @@ TfLiteStatus EvalFloat(
   const int bw_output_step =
       params->merge_outputs ? fw_num_units + bw_num_units : bw_num_units;
   if (time_major) {
-    // TODO(mirkov): add merge_outputs support for time_major inputs.
-    TF_LITE_ASSERT_EQ(params->merge_outputs, false);
-
     // Forward cell.
     float* fw_hidden_state_ptr_batch = fw_hidden_state->data.f;
     for (int s = 0; s < max_time; s++) {
@@ -312,12 +310,12 @@ TfLiteStatus EvalFloat(
               ? aux_input->data.f + s * input_size * batch_size
               : nullptr;
       float* output_ptr_batch =
-          fw_output->data.f + s * fw_num_units * batch_size;
+          fw_output->data.f + s * fw_output_step * batch_size;
 
       kernel_utils::RnnBatchStep(
           input_ptr_batch, fw_input_weights_ptr, aux_input_ptr_batch,
           fw_aux_input_weights_ptr, fw_recurrent_weights_ptr, fw_bias_ptr,
-          input_size, aux_input_size, fw_num_units, batch_size,
+          input_size, aux_input_size, fw_num_units, batch_size, fw_output_step,
           params->activation, fw_hidden_state_ptr_batch, output_ptr_batch);
     }
     // Backward cell.
@@ -330,12 +328,14 @@ TfLiteStatus EvalFloat(
               ? aux_input->data.f + s * input_size * batch_size
               : nullptr;
       float* output_ptr_batch =
-          bw_output->data.f + s * bw_num_units * batch_size;
+          (params->merge_outputs ? fw_output->data.f + fw_num_units
+                                 : bw_output->data.f) +
+          s * bw_output_step * batch_size;
 
       kernel_utils::RnnBatchStep(
           input_ptr_batch, bw_input_weights_ptr, aux_input_ptr_batch,
           bw_aux_input_weights_ptr, bw_recurrent_weights_ptr, bw_bias_ptr,
-          input_size, aux_input_size, bw_num_units, batch_size,
+          input_size, aux_input_size, bw_num_units, batch_size, bw_output_step,
           params->activation, bw_hidden_state_ptr_batch, output_ptr_batch);
     }
   } else {
@@ -358,7 +358,8 @@ TfLiteStatus EvalFloat(
             input_ptr_batch, fw_input_weights_ptr, aux_input_ptr_batch,
             fw_aux_input_weights_ptr, fw_recurrent_weights_ptr, fw_bias_ptr,
             input_size, aux_input_size, fw_num_units, /*batch_size=*/1,
-            params->activation, fw_hidden_state_ptr_batch, output_ptr_batch);
+            fw_output_step, params->activation, fw_hidden_state_ptr_batch,
+            output_ptr_batch);
       }
       // Backward cell.
       float* bw_hidden_state_ptr_batch =
@@ -380,7 +381,8 @@ TfLiteStatus EvalFloat(
             input_ptr_batch, bw_input_weights_ptr, aux_input_ptr_batch,
             bw_aux_input_weights_ptr, bw_recurrent_weights_ptr, bw_bias_ptr,
             input_size, aux_input_size, bw_num_units, /*batch_size=*/1,
-            params->activation, bw_hidden_state_ptr_batch, output_ptr_batch);
+            bw_output_step, params->activation, bw_hidden_state_ptr_batch,
+            output_ptr_batch);
       }
     }
   }
@@ -457,9 +459,6 @@ TfLiteStatus EvalHybrid(
       params->merge_outputs ? fw_num_units + bw_num_units : bw_num_units;
   if (time_major) {
     for (int t = 0; t < max_time; t++) {
-      // TODO(mirkov): add merge_outputs support for time_major inputs.
-      TF_LITE_ASSERT_EQ(params->merge_outputs, false);
-
       // Forward cell.
       float* fw_hidden_state_ptr_batch = fw_hidden_state->data.f;
       for (int s = 0; s < max_time; s++) {
@@ -470,16 +469,17 @@ TfLiteStatus EvalHybrid(
                 ? aux_input->data.f + s * input_size * batch_size
                 : nullptr;
         float* output_ptr_batch =
-            fw_output->data.f + s * fw_num_units * batch_size;
+            fw_output->data.f + s * fw_output_step * batch_size;
 
         kernel_utils::RnnBatchStep(
             input_ptr_batch, fw_input_weights_ptr, fw_input_weights_scale,
             aux_input_ptr_batch, aux_fw_input_weights_ptr,
             aux_fw_input_weights_scale, fw_recurrent_weights_ptr,
             fw_recurrent_weights_scale, fw_bias_ptr, input_size, aux_input_size,
-            fw_num_units, batch_size, params->activation, quantized_input_ptr,
-            aux_quantized_input_ptr, fw_quantized_hidden_state_ptr,
-            scaling_factors_ptr, fw_hidden_state_ptr_batch, output_ptr_batch);
+            fw_num_units, batch_size, fw_output_step, params->activation,
+            quantized_input_ptr, aux_quantized_input_ptr,
+            fw_quantized_hidden_state_ptr, scaling_factors_ptr,
+            fw_hidden_state_ptr_batch, output_ptr_batch);
       }
       // Backward cell.
       float* bw_hidden_state_ptr_batch = bw_hidden_state->data.f;
@@ -491,16 +491,19 @@ TfLiteStatus EvalHybrid(
                 ? aux_input->data.f + s * input_size * batch_size
                 : nullptr;
         float* output_ptr_batch =
-            bw_output->data.f + s * bw_num_units * batch_size;
+            (params->merge_outputs ? fw_output->data.f + fw_num_units
+                                   : bw_output->data.f) +
+            s * bw_output_step * batch_size;
 
         kernel_utils::RnnBatchStep(
             input_ptr_batch, bw_input_weights_ptr, bw_input_weights_scale,
             aux_input_ptr_batch, aux_bw_input_weights_ptr,
             aux_bw_input_weights_scale, bw_recurrent_weights_ptr,
             bw_recurrent_weights_scale, bw_bias_ptr, input_size, aux_input_size,
-            bw_num_units, batch_size, params->activation, quantized_input_ptr,
-            aux_quantized_input_ptr, bw_quantized_hidden_state_ptr,
-            scaling_factors_ptr, bw_hidden_state_ptr_batch, output_ptr_batch);
+            bw_num_units, batch_size, bw_output_step, params->activation,
+            quantized_input_ptr, aux_quantized_input_ptr,
+            bw_quantized_hidden_state_ptr, scaling_factors_ptr,
+            bw_hidden_state_ptr_batch, output_ptr_batch);
       }
     }
   } else {
@@ -524,7 +527,7 @@ TfLiteStatus EvalHybrid(
             aux_input_ptr_batch, aux_fw_input_weights_ptr,
             aux_fw_input_weights_scale, fw_recurrent_weights_ptr,
             fw_recurrent_weights_scale, fw_bias_ptr, input_size, aux_input_size,
-            fw_num_units, /*batch_size=*/1, params->activation,
+            fw_num_units, /*batch_size=*/1, fw_output_step, params->activation,
             quantized_input_ptr, aux_quantized_input_ptr,
             fw_quantized_hidden_state_ptr, scaling_factors_ptr,
             fw_hidden_state_ptr_batch, output_ptr_batch);
@@ -534,7 +537,7 @@ TfLiteStatus EvalHybrid(
           bw_hidden_state->data.f + b * bw_num_units;
       float* bw_output_offset =
           params->merge_outputs
-              ? fw_output->data.f + b * bw_output_step * max_time
+              ? fw_output->data.f + b * bw_output_step * max_time + fw_num_units
               : bw_output->data.f + b * bw_output_step * max_time;
       for (int s = max_time - 1; s >= 0; s--) {
         const float* input_ptr_batch =
@@ -550,7 +553,7 @@ TfLiteStatus EvalHybrid(
             aux_input_ptr_batch, aux_bw_input_weights_ptr,
             aux_bw_input_weights_scale, bw_recurrent_weights_ptr,
             bw_recurrent_weights_scale, bw_bias_ptr, input_size, aux_input_size,
-            bw_num_units, /*batch_size=*/1, params->activation,
+            bw_num_units, /*batch_size=*/1, bw_output_step, params->activation,
             quantized_input_ptr, aux_quantized_input_ptr,
             bw_quantized_hidden_state_ptr, scaling_factors_ptr,
             bw_hidden_state_ptr_batch, output_ptr_batch);

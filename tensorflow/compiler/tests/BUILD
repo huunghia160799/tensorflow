@@ -867,9 +867,9 @@ tf_xla_py_test(
     tags = ["optonly"],
     deps = [
         ":xla_test",
-        "//tensorflow/contrib/stateless",
         "//tensorflow/python:framework",
         "//tensorflow/python:platform_test",
+        "//tensorflow/python:stateless_random_ops",
     ],
 )
 
@@ -1089,6 +1089,7 @@ cuda_py_test(
     size = "medium",
     srcs = ["jit_test.py"],
     additional_deps = [
+        ":test_utils",
         "//tensorflow/contrib/compiler:compiler_py",
         "//tensorflow/core:protos_all_py",
         "//tensorflow/python:array_ops",
@@ -1107,6 +1108,7 @@ cuda_py_test(
     size = "small",
     srcs = ["dense_layer_test.py"],
     additional_deps = [
+        ":test_utils",
         "//tensorflow/contrib/compiler:compiler_py",
         "//tensorflow/core:protos_all_py",
         "//tensorflow/python:array_ops",

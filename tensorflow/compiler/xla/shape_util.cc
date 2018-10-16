@@ -597,7 +597,8 @@ StatusOr<Shape> ParseShapeStringInternal(absl::string_view* s) {
   // we convert in to the RE2-consumable type and then consume the corresponding
   // amount from our string_view type.
   static LazyRE2 shape_pattern = {
-      "^(\\w*\\d*)\\[([\\d,]*)\\](?:\\s*(dense|sparse)?\\s*{([\\d,]+)})?"};
+      "^(\\w*\\d*)\\[([\\d,\\s]*)\\](?:\\s*(dense|sparse)?\\s*{([\\d,\\s]+)})"
+      "?"};
   tensorflow::RegexpStringPiece s_consumable(s->data(), s->size());
   if (RE2::Consume(&s_consumable, *shape_pattern, &element_type_string,
                    &dimensions_string, &format_string, &layout_string)) {
@@ -930,7 +931,12 @@ StatusOr<Shape> ParseShapeStringInternal(absl::string_view* s) {
       return dense_shape_size;
     }
 
-    for (int64 dim : shape.dimensions()) {
+    bool is_padded =
+        LayoutUtil::IsDenseArray(shape) && LayoutUtil::IsPadded(shape);
+    absl::Span<const int64> shape_max_dimensions =
+        is_padded ? LayoutUtil::PaddedDimensions(shape)
+                  : AsInt64Slice(shape.dimensions());
+    for (int64 dim : shape_max_dimensions) {
       dense_shape_size = MultiplyWithoutOverflow(dense_shape_size, dim);
       if (dense_shape_size < 0) {
         return dense_shape_size;
@@ -952,11 +958,10 @@ StatusOr<Shape> ParseShapeStringInternal(absl::string_view* s) {
 
 /* static */ Status ShapeUtil::ValidateShapeWithOptionalLayout(
     const Shape& shape) {
-  if (LayoutUtil::HasLayout(shape)) {
-    // Since a layout is present, upgrade to the full set of invariant checks.
-    return ValidateShape(shape);
-  }
-  return ValidateShapeWithOptionalLayoutInternal(shape);
+  TF_RETURN_IF_ERROR(ValidateShapeWithOptionalLayoutInternal(shape));
+
+  return LayoutUtil::ValidateLayoutInShape(shape,
+                                           /*allow_missing_layouts=*/true);
 }
 
 /* static */ Status ShapeUtil::ValidateShape(const Shape& shape) {

@@ -85,14 +85,15 @@ class FunctionNamer(object):
 class CallTreeTransformer(converter.Base):
   """Transforms the call tree by renaming transformed symbols."""
 
-  def _resolve_name(self, node):
+  def _resolve_decorator_name(self, node):
     """Used to resolve decorator info."""
     if isinstance(node, gast.Call):
-      return self._resolve_name(node.func)
+      return self._resolve_decorator_name(node.func)
     if isinstance(node, gast.Name):
-      return self.ctx.namespace.get(node.id)
+      # TODO(mdan): Add test coverage for this branch.
+      return self.ctx.info.namespace.get(node.id)
     if isinstance(node, gast.Attribute):
-      parent = self._resolve_name(node.value)
+      parent = self._resolve_decorator_name(node.value)
       if parent is not None:
         return getattr(parent, node.attr)
       return None
@@ -135,7 +136,19 @@ class CallTreeTransformer(converter.Base):
     # The decorators themselves are not to be converted.
     # If present, the decorators should appear as static functions.
     target_entity = self._try_resolve_target(node.func)
+
     if target_entity is not None:
+
+      # This may be reached when "calling" a callable attribute of an object.
+      # For example:
+      #
+      #   self.fc = tf.keras.layers.Dense()
+      #   self.fc()
+      #
+      for mod in self.ctx.program.uncompiled_modules:
+        if target_entity.__module__.startswith(mod[0] + '.'):
+          return False
+
       # This attribute is set by the decorator itself.
       # TODO(mdan): This may not play nicely with other wrapping decorators.
       if hasattr(target_entity, '__pyct_is_compile_decorator'):
@@ -158,7 +171,7 @@ class CallTreeTransformer(converter.Base):
         return True
 
       for dec in target_node.decorator_list:
-        decorator_fn = self._resolve_name(dec)
+        decorator_fn = self._resolve_decorator_name(dec)
         if (decorator_fn is not None and
             decorator_fn in self.ctx.program.options.strip_decorators):
           return False
@@ -238,11 +251,18 @@ class CallTreeTransformer(converter.Base):
     # Before we could convert all the time though, we'd need a reasonable
     # caching mechanism.
     template = """
-      ag__.converted_call(func, options, args)
+      ag__.converted_call(func, owner, options, args)
     """
+    if isinstance(node.func, gast.Attribute):
+      func = gast.Str(node.func.attr)
+      owner = node.func.value
+    else:
+      func = node.func
+      owner = parser.parse_expression('None')
     call_expr = templates.replace(
         template,
-        func=node.func,
+        func=func,
+        owner=owner,
         options=self.ctx.program.options.to_ast(self.ctx.info.namespace),
         args=node.args)
     new_call = call_expr[0].value
@@ -288,7 +308,12 @@ class CallTreeTransformer(converter.Base):
         target_fqn = anno.getanno(node.func, 'fqn')
       else:
         target_fqn = None
-      if self._function_is_compilable(target_entity):
+
+      if inspect_utils.isbuiltin(target_entity):
+        # Note: Any builtin that passed the builtins converter is assumed to be
+        # safe for graph mode.
+        return node
+      elif self._function_is_compilable(target_entity):
         node = self._rename_compilable_function(node)
       elif target_fqn and target_fqn in KNOWN_NUMPY_FUNCTIONS:
         # TODO(mdan): Should we replace these with equivalent TF ops instead?
@@ -298,18 +323,6 @@ class CallTreeTransformer(converter.Base):
         raise NotImplementedError(
             'py_func with return values (unknown function)')
     else:
-      if anno.hasanno(node.func, anno.Basic.QN):
-        # Special-case a few builtins that otherwise go undetected. This
-        # normally doesn't pose a problem, but the dict built-in doesn't
-        # work with inspect.getargspec which is required for dynamic functions.
-        # Note: expecting this is resilient to aliasing (e.g.
-        # dict = an_evil_dict), because in those cases the regular mechanisms
-        # process a simple user function.
-        qn = anno.getanno(node.func, anno.Basic.QN)
-        # Add items to this list as needed.
-        if str(qn) in ('dict',):
-          return node
-
       if ast_util.matches(node, 'super(_)'):
         # super() calls are preserved. The class conversion mechanism will
         # ensure that they return the correct value.

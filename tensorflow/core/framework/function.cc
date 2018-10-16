@@ -303,7 +303,7 @@ class FunctionInstantiationHelper {
   Status AddReturnNode(
       const OpDef::ArgDef& ret_def, AttrSlice attrs,
       const ::tensorflow::protobuf::Map<string, string>& ret_map,
-      int* ret_index) {
+      bool ints_on_device, int* ret_index) {
     auto ret_iter = ret_map.find(ret_def.name());
     if (ret_iter == ret_map.end()) {
       return errors::InvalidArgument("Return ", ret_def.name(), " missing.");
@@ -329,7 +329,11 @@ class FunctionInstantiationHelper {
         strings::StrAppend(&name, "_", i);
       }
       NodeDef* gnode = AddNode(name);
-      gnode->set_op(FunctionLibraryDefinition::kRetOp);
+      if (ints_on_device && dtypes[i] == DataType::DT_INT32) {
+        gnode->set_op(FunctionLibraryDefinition::kDeviceRetOp);
+      } else {
+        gnode->set_op(FunctionLibraryDefinition::kRetOp);
+      }
       AddInput(nodes_.size() - 1, item->nid, item->idx + i);
       AddAttr("T", dtypes[i], gnode);
       AddAttr("index", (*ret_index)++, gnode);
@@ -686,10 +690,14 @@ Status InstantiateFunction(const FunctionDef& fdef, AttrSlice attr_values,
     }
   }
 
+  bool ints_on_device = fdef.attr().count("experimental_ints_on_device") != 0 &&
+                        fdef.attr().at("experimental_ints_on_device").b();
+
   // Emits nodes for the function's return values.
   int ret_index = 0;
   for (const OpDef::ArgDef& ret_def : sig.output_arg()) {
-    s = helper.AddReturnNode(ret_def, attr_values, fdef.ret(), &ret_index);
+    s = helper.AddReturnNode(ret_def, attr_values, fdef.ret(), ints_on_device,
+                             &ret_index);
     if (!s.ok()) {
       errors::AppendToMessage(&s, "In function output ", Print(ret_def));
       return s;
@@ -1112,7 +1120,7 @@ Status FunctionLibraryDefinition::ReplaceFunction(const string& func,
                                                   const FunctionDef& fdef) {
   mutex_lock l(mu_);
   bool added;
-  TF_RETURN_IF_ERROR(RemoveFunction(func));
+  TF_RETURN_IF_ERROR(RemoveFunctionHelper(func));
   TF_RETURN_IF_ERROR(AddFunctionDefHelper(fdef, &added));
   return Status::OK();
 }
@@ -1126,6 +1134,12 @@ Status FunctionLibraryDefinition::ReplaceGradient(const GradientDef& grad) {
 }
 
 Status FunctionLibraryDefinition::RemoveFunction(const string& func) {
+  mutex_lock l(mu_);
+  TF_RETURN_IF_ERROR(RemoveFunctionHelper(func));
+  return Status::OK();
+}
+
+Status FunctionLibraryDefinition::RemoveFunctionHelper(const string& func) {
   const auto& i = function_defs_.find(func);
   if (i == function_defs_.end()) {
     return errors::InvalidArgument("Tried to remove non-existent function ",
@@ -1149,7 +1163,7 @@ void FunctionLibraryDefinition::Remove(
     const std::vector<string>& funcs,
     const std::vector<string>& funcs_with_grads) {
   for (const string& f : funcs) {
-    Status s = RemoveFunction(f);
+    Status s = RemoveFunctionHelper(f);
     DCHECK(s.ok());
   }
   for (const string& f : funcs_with_grads) {

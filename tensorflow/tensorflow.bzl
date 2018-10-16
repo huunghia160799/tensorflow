@@ -1482,9 +1482,9 @@ check_deps = rule(
     },
 )
 
-# Helper to build a dynamic library (.so) from the sources containing
-# implementations of custom ops and kernels.
-def tf_custom_op_library(name, srcs = [], gpu_srcs = [], deps = [], linkopts = []):
+def tf_custom_op_library(name, srcs = [], gpu_srcs = [], deps = [], linkopts = [], **kwargs):
+    """Helper to build a dynamic library (.so) from the sources containing implementations of custom ops and kernels.
+    """
     cuda_deps = [
         clean_dep("//tensorflow/core:stream_executor_headers_lib"),
         "@local_config_cuda//cuda:cuda_headers",
@@ -1502,6 +1502,7 @@ def tf_custom_op_library(name, srcs = [], gpu_srcs = [], deps = [], linkopts = [
             copts = _cuda_copts() + if_tensorrt(["-DGOOGLE_TENSORRT=1"]),
             features = if_cuda(["-use_header_modules"]),
             deps = deps + if_cuda_is_configured(cuda_deps) + if_rocm_is_configured(rocm_deps),
+            **kwargs
         )
         cuda_deps.extend([":" + basename + "_gpu"])
         rocm_deps.extend([":" + basename + "_gpu"])
@@ -1528,6 +1529,7 @@ def tf_custom_op_library(name, srcs = [], gpu_srcs = [], deps = [], linkopts = [
             clean_dep("//tensorflow:windows"): [],
             clean_dep("//tensorflow:darwin"): [],
         }),
+        **kwargs
     )
 
 register_extension_info(
@@ -1543,7 +1545,7 @@ def tf_custom_op_py_library(
         srcs_version = "PY2AND3",
         visibility = None,
         deps = []):
-    kernels = kernels  # unused argument
+    _ignore = [kernels]
     native.py_library(
         name = name,
         data = dso,
@@ -1980,9 +1982,9 @@ def tf_py_build_info_genrule():
         name = "py_build_info_gen",
         outs = ["platform/build_info.py"],
         cmd =
-            "$(location //tensorflow/tools/build_info:gen_build_info.py) --raw_generate \"$@\" --build_config " + if_cuda("cuda", "cpu"),
+            "$(location //tensorflow/tools/build_info:gen_build_info) --raw_generate \"$@\" --build_config " + if_cuda("cuda", "cpu"),
         local = 1,
-        tools = [clean_dep("//tensorflow/tools/build_info:gen_build_info.py")],
+        tools = [clean_dep("//tensorflow/tools/build_info:gen_build_info")],
     )
 
 def cc_library_with_android_deps(

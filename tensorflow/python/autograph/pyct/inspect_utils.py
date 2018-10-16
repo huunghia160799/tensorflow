@@ -29,15 +29,25 @@ import six
 from tensorflow.python.util import tf_inspect
 
 
+# These functions test negative for isinstance(*, types.BuiltinFunctionType)
+# and inspect.isbuiltin, and are generally not visible in globals().
+SPECIAL_BUILTINS = {
+    'dict': dict,
+    'float': float,
+    'int': int,
+    'print': print,
+    'range': range,
+    'tuple': tuple
+}
+
+if six.PY2:
+  SPECIAL_BUILTINS['xrange'] = xrange
+
+
 def isbuiltin(f):
   """Returns True if the argument is a built-in function."""
-  # Note these return false for isinstance(f, types.BuiltinFunctionType) so we
-  # need to specifically check for them.
-  if f in (range, int, float):
+  if f in SPECIAL_BUILTINS.values():
     return True
-  if six.PY2:
-    if f in (xrange,):
-      return True
   if isinstance(f, types.BuiltinFunctionType):
     return True
   if tf_inspect.isbuiltin(f):
@@ -200,3 +210,59 @@ def getmethodclass(m):
     raise ValueError('Found too many owners of %s: %s' % (m, owners))
 
   return None
+
+
+class SuperWrapperForDynamicAttrs(object):
+  """A wrapper that supports dynamic attribute lookup on the super object.
+
+  For example, in the following code, `super` incorrectly reports that
+  `super(Bar, b)` lacks the `a` attribute:
+
+    class Foo(object):
+      def __init__(self):
+        self.a = lambda: 1
+
+      def bar(self):
+        return hasattr(self, 'a')
+
+    class Bar(Foo):
+      def bar(self):
+        return super(Bar, self).bar()
+
+
+    b = Bar()
+    print(hasattr(super(Bar, b), 'a'))  # False
+    print(super(Bar, b).bar())          # True
+
+  A practical situation when this tends to happen is Keras model hierarchies
+  that hold references to certain layers, like this:
+
+    class MiniModel(keras.Model):
+
+      def __init__(self):
+        super(MiniModel, self).__init__()
+        self.fc = keras.layers.Dense(1)
+
+      def call(self, inputs, training=True):
+        return self.fc(inputs)
+
+    class DefunnedMiniModel(MiniModel):
+
+      def call(self, inputs, training=True):
+        return super(DefunnedMiniModel, self).call(inputs, training=training)
+
+  A side effect of this wrapper is that all attributes become visible, even
+  those created in the subclass.
+  """
+
+  # TODO(mdan): Investigate why that happens - it may be for a reason.
+  # TODO(mdan): Probably need more overrides to make it look like super.
+
+  def __init__(self, target):
+    self._target = target
+
+  def __getattribute__(self, name):
+    target = object.__getattribute__(self, '_target')
+    if hasattr(target, name):
+      return getattr(target, name)
+    return getattr(target.__self__, name)
